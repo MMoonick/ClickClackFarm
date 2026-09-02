@@ -1,0 +1,33 @@
+{
+  "version": 1,
+  "atlas": "land-tiles-atlas@2x.png",
+  "cellWidth": 400,
+  "cellHeight": 400,
+  "anchor": {
+    "x": 0.5,
+    "y": 1.0
+  },
+  "states": {
+    "grass": {
+      "meaning": "uncultivated",
+      "frame": { "x": 0, "y": 0, "w": 400, "h": 400 }
+    },
+    "tilled": {
+      "meaning": "cultivated",
+      "frame": { "x": 400, "y": 0, "w": 400, "h": 400 }
+    }
+  },
+  "scene": {
+    "base": "scene-land-grid-base@2x.png",
+    "canvasWidth": 1440,
+    "canvasHeight": 880,
+    "placementMode": "stretch-frame-into-slot-rect",
+    "plotSlots": {
+      "plot1": { "x": 176, "y": 78, "w": 331, "h": 295 },
+      "plot2": { "x": 553, "y": 78, "w": 333, "h": 295 },
+      "plot3": { "x": 176, "y": 428, "w": 332, "h": 340 },
+      "plot4": { "x": 553, "y": 428, "w": 333, "h": 340 },
+      "plot5": { "x": 934, "y": 428, "w": 332, "h": 340 }
+    }
+  }
+}

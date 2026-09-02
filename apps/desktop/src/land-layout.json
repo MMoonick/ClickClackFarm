@@ -1,0 +1,188 @@
+{
+  "version": "0.2.4",
+  "status": "implementation-ready-verified-against-flat-land-base-runtime-walkthrough-and-density-preview",
+  "coordinateSpace": {
+    "unit": "pixel@2x",
+    "canvas": [1440, 880],
+    "origin": "top-left",
+    "anchorSemantics": "Animal coordinates refer to the foot-bottom-center anchor; plant coordinates refer to the root-bottom-center anchor.",
+    "runtimeScale": "Keep all content in the 1440x880 authoring coordinate space, then crop the complete authoring stage by presentation.tightCropRect and aspect-fit the cropped viewport. There is no independent user zoom control."
+  },
+  "presentation": {
+    "baseScale": 1.04,
+    "baseScaleOrigin": [720, 440],
+    "measuredOriginalAlphaBounds": [116, 22, 1208, 835],
+    "scaledAlphaBounds": [90, 6, 1260, 868],
+    "tightCropRect": [90, 6, 1260, 868],
+    "runtimeViewport": [1260, 868],
+    "scenePadding": [0, 0, 0, 0],
+    "cropSemantics": "Scale only the continuous base image by 1.04 around the canvas center. Keep plots, actors, warehouse, hit targets and drag control in authoring coordinates. Crop the complete stage to tightCropRect; transparent corner pixels caused by the irregular land silhouette are expected, but no extra rectangular transparent margin may be reserved.",
+    "outerRimTarget": {
+      "authoringBounds": [90, 6, 1260, 868],
+      "plotUnionBounds": [138, 55, 1164, 770],
+      "minimumVisibleRim": [48, 49, 48, 49],
+      "plotGap": 18,
+      "acceptance": "Each outer rim must be at least 2.5 times the 18px inter-plot gap at the corresponding straight-edge checkpoint."
+    }
+  },
+  "artStructure": {
+    "base": "one-continuous-flat-land-plane",
+    "sceneAsset": "scene-land-flat-base@2x.png",
+    "gridVisibility": "coordinates-only-never-rendered",
+    "gridRows": 2,
+    "gridColumns": 3,
+    "plotSize": [376, 376],
+    "plotGap": [18, 18],
+    "outerBackground": "tight-alpha-crop-with-no-additional-transparent-margin",
+    "warehousePlatform": "none"
+  },
+  "tileRendering": {
+    "sourceAssets": {
+      "grass": "land-tile-grass@2x.png",
+      "tilled": "land-tile-tilled@2x.png"
+    },
+    "preferredMode": "individual-png",
+    "fit": "contain-exactly-within-renderRect",
+    "visualInset": [0, 0, 0, 0],
+    "overscan": 0,
+    "wrapperOverflow": "visible",
+    "cssBorderRadius": "none-use-png-alpha",
+    "stateColorFilter": "none",
+    "alphaDropShadows": [
+      { "x": 0, "y": 2, "blur": 2, "color": "rgba(72,42,18,0.25)" },
+      { "x": 0, "y": 6, "blur": 8, "color": "rgba(72,42,18,0.15)" }
+    ],
+    "forbidden": [
+      "negative-inset",
+      "overscan-crop",
+      "overflow-hidden-on-plot-wrapper",
+      "uniform-css-border-radius",
+      "rectangular-box-shadow",
+      "persistent-saturation-or-brightness-filter"
+    ]
+  },
+  "warehouse": {
+    "plotId": "warehouse",
+    "renderRect": [926, 67, 376, 376],
+    "visualScale": 1.08,
+    "scaleOrigin": "center-bottom",
+    "visualBounds": [911, 37, 406, 406],
+    "hitPolygon": [[911, 37], [1317, 37], [1317, 443], [911, 443]],
+    "animalForbiddenPolygon": [[899, 25], [1329, 25], [1329, 455], [899, 455]]
+  },
+  "windowDragControl": {
+    "visual": "six-dot-grip-only",
+    "hitRect": [1194, 36, 44, 44],
+    "visualSize": [28, 21],
+    "placement": "inside-the-upper-right-land-area",
+    "chrome": "none-no-background-no-border-no-shadow",
+    "cursor": ["grab", "grabbing"],
+    "accessibleName": "拖动牧场窗口"
+  },
+  "windowHideControl": {
+    "visual": "close-icon",
+    "hitRect": [1240, 36, 44, 44],
+    "visualSize": [18, 18],
+    "placement": "to-the-right-of-the-window-drag-control",
+    "behavior": "hide-main-window-and-keep-process-running",
+    "accessibleName": "隐藏牧场窗口（继续后台运行）"
+  },
+  "plantSlotPattern": {
+    "order": ["C", "A", "E", "B", "D"],
+    "slotSemantics": {
+      "C": "center-first",
+      "A": "upper-left-second",
+      "E": "lower-right-third",
+      "B": "upper-right-fourth",
+      "D": "lower-left-fifth"
+    },
+    "visibleCount": {
+      "1": ["C"],
+      "2": ["C", "A"],
+      "3": ["C", "A", "E"],
+      "4": ["C", "A", "E", "B"],
+      "5": ["C", "A", "E", "B", "D"]
+    },
+    "stabilityRule": "Increasing visibleCount appends one new slot and never relocates an already visible plant. Decreasing visibleCount removes slots in reverse order.",
+    "depthSort": "Sort all plant and animal instances by anchor y ascending before drawing."
+  },
+  "plantRendering": {
+    "sourceAspectRatio": [192, 256],
+    "anchor": "root-bottom-center",
+    "seedlingSize": [136.8, 182.4],
+    "matureSize": [158.4, 211.2],
+    "seedlingWidthOfAuthoringCanvas": 0.095,
+    "matureWidthOfAuthoringCanvas": 0.11,
+    "overflow": "visible",
+    "matureOverflowAllowance": 8,
+    "rule": "Size by state without changing the root anchor. Five mature plants may exceed the plot Alpha edge by up to 8px including drop shadow, but must not be clipped by the plot wrapper or scene actor layer."
+  },
+  "plots": {
+    "plot1": {
+      "species": "clover",
+      "renderRect": [138, 55, 376, 376],
+      "plantSlots": { "A": [210, 270], "B": [442, 270], "C": [326, 346], "D": [210, 422], "E": [442, 422] },
+      "animalFootSafePolygon": [[224, 221], [428, 221], [428, 415], [224, 415]],
+      "adjacentPlots": ["plot2", "plot3"]
+    },
+    "plot2": {
+      "species": "sunflower",
+      "renderRect": [532, 55, 376, 376],
+      "plantSlots": { "A": [604, 270], "B": [836, 270], "C": [720, 346], "D": [604, 422], "E": [836, 422] },
+      "animalFootSafePolygon": [[618, 221], [822, 221], [822, 415], [618, 415]],
+      "adjacentPlots": ["plot1", "plot4"]
+    },
+    "plot3": {
+      "species": "bamboo",
+      "renderRect": [138, 449, 376, 376],
+      "plantSlots": { "A": [210, 664], "B": [442, 664], "C": [326, 740], "D": [210, 816], "E": [442, 816] },
+      "animalFootSafePolygon": [[224, 615], [428, 615], [428, 809], [224, 809]],
+      "adjacentPlots": ["plot1", "plot4"]
+    },
+    "plot4": {
+      "species": "corn",
+      "renderRect": [532, 449, 376, 376],
+      "plantSlots": { "A": [604, 664], "B": [836, 664], "C": [720, 740], "D": [604, 816], "E": [836, 816] },
+      "animalFootSafePolygon": [[618, 615], [822, 615], [822, 809], [618, 809]],
+      "adjacentPlots": ["plot2", "plot3", "plot5"]
+    },
+    "plot5": {
+      "species": "apple",
+      "renderRect": [926, 449, 376, 376],
+      "plantSlots": { "A": [998, 664], "B": [1230, 664], "C": [1114, 740], "D": [998, 816], "E": [1230, 816] },
+      "animalFootSafePolygon": [[1012, 615], [1216, 615], [1216, 809], [1012, 809]],
+      "adjacentPlots": ["plot4"]
+    }
+  },
+  "animalMovementClip": {
+    "operation": "union",
+    "members": [
+      "plots.plot1.animalFootSafePolygon",
+      "plots.plot2.animalFootSafePolygon",
+      "plots.plot3.animalFootSafePolygon",
+      "plots.plot4.animalFootSafePolygon",
+      "plots.plot5.animalFootSafePolygon",
+      "connectors.plot1-plot2",
+      "connectors.plot1-plot3",
+      "connectors.plot2-plot4",
+      "connectors.plot3-plot4",
+      "connectors.plot4-plot5"
+    ],
+    "connectors": {
+      "plot1-plot2": [[428, 250], [618, 250], [618, 340], [428, 340]],
+      "plot1-plot3": [[281, 415], [371, 415], [371, 615], [281, 615]],
+      "plot2-plot4": [[675, 415], [765, 415], [765, 615], [675, 615]],
+      "plot3-plot4": [[428, 644], [618, 644], [618, 734], [428, 734]],
+      "plot4-plot5": [[822, 644], [1012, 644], [1012, 734], [822, 734]]
+    },
+    "spriteContainment": {
+      "mode": "conservative-largest-runtime-box",
+      "largestRuntimeBox": [158.4, 158.4],
+      "anchor": "foot-bottom-center",
+      "minimumTileClearance": { "left": 6.8, "top": 7.6, "right": 6.8, "bottom": 16 },
+      "rule": "The entire runtime sprite element, not only its foot anchor, must remain inside a land tile or an explicit connector. Do not crop actor-layer children at plot or scene boundaries."
+    },
+    "boundaryResponse": "Reflect the current movement vector once. If the reflected endpoint is still outside the union, choose a new direction between 90 and 180 degrees from the rejected direction.",
+    "collisionPolicy": "MVP does not perform animal-to-animal collision avoidance. Slight overlap is allowed."
+  }
+}

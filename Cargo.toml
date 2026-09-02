@@ -1,0 +1,17 @@
+[workspace]
+members = [
+    "crates/content-config",
+    "crates/domain",
+]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+rust-version = "1.98"
+
+[workspace.dependencies]
+num-bigint = "0.4.6"
+num-traits = "0.2.19"
+proptest = "1.9.0"
+thiserror = "2.0.17"

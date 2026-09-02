@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "敲敲牧场",
+  "version": "1.0.0",
+  "identifier": "com.clickclackfarm.desktop",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "macOSPrivateApi": true,
+    "security": {
+      "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    },
+    "windows": [
+      {
+        "label": "main",
+        "title": "敲敲牧场",
+        "width": 1040,
+        "height": 700,
+        "minWidth": 720,
+        "minHeight": 620,
+        "center": true,
+        "decorations": false,
+        "transparent": true,
+        "backgroundColor": [0, 0, 0, 0],
+        "resizable": true,
+        "alwaysOnTop": true,
+        "fullscreen": false,
+        "visible": true
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns"],
+    "category": "Game",
+    "copyright": "Copyright © 2026 敲敲牧场",
+    "shortDescription": "敲击和点击都会成长的桌面挂机牧场 Demo",
+    "targets": ["app"],
+    "macOS": {
+      "minimumSystemVersion": "13.0",
+      "entitlements": "entitlements/direct-release.plist",
+      "hardenedRuntime": true,
+      "signingIdentity": "-"
+    }
+  }
+}

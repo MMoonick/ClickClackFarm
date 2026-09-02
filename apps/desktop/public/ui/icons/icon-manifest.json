@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "library": {
+    "name": "Lucide",
+    "version": "1.27.0",
+    "repository": "https://github.com/lucide-icons/lucide",
+    "license": "ISC",
+    "licenseFile": "LICENSE-LUCIDE.txt",
+    "modifications": "Files are unmodified except for project-specific filenames."
+  },
+  "defaults": {
+    "viewBox": "0 0 24 24",
+    "stroke": "currentColor",
+    "strokeWidth": 2,
+    "fill": "none"
+  },
+  "icons": {
+    "icon-nav-warehouse": { "file": "icon-nav-warehouse.svg", "sourceIcon": "warehouse" },
+    "icon-nav-buy": { "file": "icon-nav-buy.svg", "sourceIcon": "shopping-basket" },
+    "icon-nav-sell": { "file": "icon-nav-sell.svg", "sourceIcon": "hand-coins" },
+    "icon-nav-compendium": { "file": "icon-nav-compendium.svg", "sourceIcon": "book-open" },
+    "icon-nav-statistics": { "file": "icon-nav-statistics.svg", "sourceIcon": "chart-column" },
+    "icon-nav-settings": { "file": "icon-nav-settings.svg", "sourceIcon": "settings" },
+    "icon-nav-notice": { "file": "icon-nav-notice.svg", "sourceIcon": "megaphone" },
+    "icon-currency-coin": { "file": "icon-currency-coin.svg", "sourceIcon": "coins" },
+    "icon-category-plant": { "file": "icon-category-plant.svg", "sourceIcon": "sprout" },
+    "icon-category-animal": { "file": "icon-category-animal.svg", "sourceIcon": "paw-print" },
+    "icon-action-close": { "file": "icon-action-close.svg", "sourceIcon": "x" },
+    "icon-action-minus": { "file": "icon-action-minus.svg", "sourceIcon": "minus" },
+    "icon-action-plus": { "file": "icon-action-plus.svg", "sourceIcon": "plus" },
+    "icon-action-previous": { "file": "icon-action-previous.svg", "sourceIcon": "chevron-left" },
+    "icon-action-next": { "file": "icon-action-next.svg", "sourceIcon": "chevron-right" },
+    "icon-window-drag": { "file": "icon-window-drag.svg", "sourceIcon": "grip-horizontal" },
+    "icon-window-hide": { "file": "icon-window-hide.svg", "sourceIcon": "eye-off" }
+  }
+}
