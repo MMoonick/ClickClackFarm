@@ -27,7 +27,7 @@ https://github.com/user-attachments/assets/9d5b74da-968c-4ca9-904b-1f85a552034f
 1. 在 Finder 中按住 Control 点击“敲敲牧场.app”，选择“打开”；
 2. 如果仍被阻止，进入“系统设置 → 隐私与安全性”，向下找到“敲敲牧场”被阻止打开的提示，点击 “仍要打开”；
 3. 按游戏内弹窗指引开启“输入监控”权限，然后重新打开游戏。
-<img width="1446" height="1272" alt="image" src="https://github.com/user-attachments/assets/146b01fe-f9cb-4fce-8682-d8e61536f998" />
+<img width="600" alt="image" src="https://github.com/user-attachments/assets/146b01fe-f9cb-4fce-8682-d8e61536f998" />
 
 游戏只统计键盘按下与鼠标点击的次数，不读取或保存按键内容、鼠标位置等隐私内容。存档仅保存在本机。
 
