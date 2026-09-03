@@ -7,7 +7,7 @@ const json = (path) => JSON.parse(read(path));
 test("release versions and transparent Windows window settings agree", () => {
   const base = json("src-tauri/tauri.conf.json");
   const windows = json("src-tauri/tauri.windows.conf.json");
-  assert.equal(base.version, "1.0.3");
+  assert.equal(base.version, "1.0.4");
   assert.equal(json("package.json").version, base.version);
   const { shadow, url, ...shared } = windows.app.windows[0];
   assert.deepEqual(shared, base.app.windows[0]);
@@ -34,4 +34,24 @@ test("Windows release retains Raw Input keyboard and hidden native menu", () => 
   assert.match(read("src-tauri/src/windows_input.rs"), /RegisterRawInputDevices/);
   assert.doesNotMatch(read("src-tauri/src/windows_input.rs"), /WH_KEYBOARD_LL/);
   assert.match(read("src-tauri/src/window_probe.rs"), /\.hide_menu\(\)/);
+});
+
+test("Windows tray reuses the macOS icon and existing show/exit handling without notifications", () => {
+  const main = read("src-tauri/src/main.rs");
+  const tray = main.slice(main.indexOf("fn install_windows_tray"), main.indexOf("fn main()"));
+  assert.match(main, /#\[cfg\(target_os = "windows"\)\]\s*fn install_windows_tray/);
+  assert.match(main, /#\[cfg\(target_os = "windows"\)\]\s*install_windows_tray\(app\)\?/);
+  assert.match(tray, /include_image!\(\s*"icons\/AppIcon.iconset\/icon_32x32.png"\s*\)/);
+  const icon = readFileSync(new URL("../src-tauri/icons/AppIcon.iconset/icon_32x32.png", import.meta.url));
+  assert.equal(icon.readUInt32BE(16), 32);
+  assert.equal(icon.readUInt32BE(20), 32);
+  assert.match(tray, /with_id\(MENU_SHOW, "显示牧场"\)/);
+  assert.match(tray, /with_id\(MENU_QUIT, "退出游戏"\)/);
+  assert.match(tray, /show_menu_on_left_click\(false\)/);
+  assert.match(tray, /button: MouseButton::Left/);
+  assert.match(tray, /button_state: MouseButtonState::Up/);
+  assert.match(tray, /show_main_window\(tray.app_handle\(\)\)/);
+  assert.match(main, /MENU_QUIT => app.exit\(0\)/);
+  assert.match(main, /RunEvent::ExitRequested \{ \.\. \} => prepare_exit\(app\)/);
+  assert.doesNotMatch(tray, /notification|balloon|message_dialog|MessageDialog/);
 });

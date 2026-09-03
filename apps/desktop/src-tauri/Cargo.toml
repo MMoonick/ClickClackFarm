@@ -1,6 +1,6 @@
 [package]
 name = "clickclackfarm-demo"
-version = "1.0.3"
+version = "1.0.4"
 description = "Playable Click Clack Farm desktop Demo"
 authors = ["Click Clack Farm"]
 edition = "2024"
@@ -48,6 +48,7 @@ objc2-foundation = { version = "=0.3.2", default-features = false, features = [
 ] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
+tauri = { version = "=2.11.5", features = ["tray-icon"] }
 windows-sys = { version = "=0.61.2", features = [
   "Win32_Foundation",
   "Win32_Graphics_Gdi",

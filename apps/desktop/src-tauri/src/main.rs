@@ -184,6 +184,43 @@ fn install_application_menu(app: &mut tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+#[cfg(target_os = "windows")]
+fn install_windows_tray(app: &tauri::App) -> tauri::Result<()> {
+    use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+
+    // Reuse the application menu IDs so both exit paths use the same shutdown.
+    let show = MenuItemBuilder::with_id(MENU_SHOW, "显示牧场").build(app)?;
+    let quit = MenuItemBuilder::with_id(MENU_QUIT, "退出游戏").build(app)?;
+    let menu = MenuBuilder::new(app)
+        .item(&show)
+        .separator()
+        .item(&quit)
+        .build()?;
+
+    TrayIconBuilder::with_id("farm-tray")
+        // The exact rabbit-and-clover bitmap also used by the macOS app icon.
+        .icon(tauri::include_image!(
+            "icons/AppIcon.iconset/icon_32x32.png"
+        ))
+        .menu(&menu)
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if matches!(
+                event,
+                TrayIconEvent::Click {
+                    button: MouseButton::Left,
+                    button_state: MouseButtonState::Up,
+                    ..
+                }
+            ) {
+                let _ = window_probe::show_main_window(tray.app_handle());
+            }
+        })
+        // Tauri retains this icon in its application resources, including while hidden.
+        .build(app)?;
+    Ok(())
+}
+
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
@@ -226,6 +263,8 @@ fn main() {
                 shutting_down: AtomicBool::new(false),
             });
             install_application_menu(app)?;
+            #[cfg(target_os = "windows")]
+            install_windows_tray(app)?;
             window_probe::configure_desktop_window(app.handle()).map_err(std::io::Error::other)?;
             window_probe::install_dock_menu(app.handle().clone()).map_err(std::io::Error::other)?;
             if input_probe::preflight_permission() {
