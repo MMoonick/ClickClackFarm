@@ -86,11 +86,6 @@ fn commit_sale(
 }
 
 #[tauri::command]
-fn reset_game(state: State<'_, GameAppState>) -> Result<EconomySnapshot, String> {
-    state.game.reset(state.runtime.total_effective_inputs())
-}
-
-#[tauri::command]
 fn request_input_permission(
     app: AppHandle,
     state: State<'_, GameAppState>,
@@ -202,8 +197,7 @@ fn main() {
             quote_purchase,
             commit_purchase,
             quote_sale,
-            commit_sale,
-            reset_game
+            commit_sale
         ])
         .on_menu_event(|app, event| match event.id().as_ref() {
             MENU_SHOW => {

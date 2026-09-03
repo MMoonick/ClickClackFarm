@@ -18,6 +18,8 @@ https://github.com/user-attachments/assets/9d5b74da-968c-4ca9-904b-1f85a552034f
 
 ## 下载与运行
 
+### macOS
+
 - 系统要求：macOS 13 或更高版本
 - 处理器：Apple Silicon（M1/M2/M3/M4 及后续机型）
 - 下载：[ClickClackFarm-macOS-arm64-v1.0.zip](https://github.com/MMoonick/ClickClackFarm/releases/download/v1.0/ClickClackFarm-macOS-arm64-v1.0.zip)
@@ -30,6 +32,17 @@ https://github.com/user-attachments/assets/9d5b74da-968c-4ca9-904b-1f85a552034f
 <img width="200" alt="image" src="https://github.com/user-attachments/assets/146b01fe-f9cb-4fce-8682-d8e61536f998" />
 
 游戏只统计键盘按下与鼠标点击的次数，不读取或保存按键内容、鼠标位置等隐私内容。存档仅保存在本机，无隐私泄露风险。
+
+
+### Windows
+
+- 系统要求：Windows 10/11，64 位（x64）
+- 版本：v1.0.3
+- 下载：[ClickClackFarm-Windows-x64-v1.0.3-setup.exe](https://github.com/MMoonick/ClickClackFarm/releases/download/v1.0.3/ClickClackFarm-Windows-x64-v1.0.3-setup.exe)
+
+下载后运行安装程序，安装完成后打开“敲敲牧场”。缺少 WebView2 Runtime 时，安装程序会引导联网安装。本版未做代码签名，可能出现“未知发布者”提示，请仅使用本项目提供的安装包。
+
+升级前请完全退出旧游戏，旧存档会继续保留。主画面右上角的 × 只隐藏窗口；聚焦游戏后按 `Ctrl+Q` 退出，再次打开游戏可唤回隐藏窗口。
 
 ## 本地开发
 

@@ -261,6 +261,7 @@ impl GameEngine {
         to_snapshot(&inner, &self.content, local_calendar_sample().as_ref())
     }
 
+    #[cfg(test)]
     pub fn reset(&self, total_global_inputs: u64) -> Result<EconomySnapshot, String> {
         let mut inner = self.lock()?;
         inner.state = new_demo_game_state(&self.content)?;
@@ -737,9 +738,19 @@ fn local_calendar_sample() -> Option<CalendarSample> {
         return None;
     }
     let mut local = std::mem::MaybeUninit::<libc::tm>::uninit();
-    // SAFETY: localtime_r initializes local when it returns non-null.
-    if unsafe { libc::localtime_r(&timestamp, local.as_mut_ptr()) }.is_null() {
-        return None;
+    #[cfg(unix)]
+    {
+        // SAFETY: localtime_r initializes local when it returns non-null.
+        if unsafe { libc::localtime_r(&timestamp, local.as_mut_ptr()) }.is_null() {
+            return None;
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // SAFETY: localtime_s initializes local when it returns zero.
+        if unsafe { libc::localtime_s(local.as_mut_ptr(), &timestamp) } != 0 {
+            return None;
+        }
     }
     // SAFETY: checked successful initialization above.
     let local = unsafe { local.assume_init() };
@@ -806,6 +817,17 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_file(&self.0);
         }
+    }
+
+    #[test]
+    fn new_save_starts_with_release_assets() {
+        let save = TestSave::new("v1-initial-assets");
+        let engine = GameEngine::load(save.0.clone()).expect("load game");
+        let snapshot = engine.snapshot(0, Duration::ZERO).expect("snapshot");
+
+        assert_eq!(snapshot.coins, "100");
+        assert_eq!(snapshot.tiers["clover"].plant_count, "1");
+        assert_eq!(snapshot.tiers["clover"].animal_count, "1");
     }
 
     #[test]

@@ -211,7 +211,242 @@ mod platform {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+mod platform {
+    use super::ActivityProbe;
+    use std::{
+        cell::RefCell,
+        mem::size_of,
+        sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+            mpsc::sync_channel,
+        },
+        thread,
+    };
+    use windows_sys::Win32::{
+        Foundation::{HWND, LPARAM, LRESULT, WPARAM},
+        System::{
+            LibraryLoader::GetModuleHandleW,
+            Power::{
+                POWERBROADCAST_SETTING, RegisterPowerSettingNotification,
+                UnregisterPowerSettingNotification,
+            },
+            RemoteDesktop::{
+                NOTIFY_FOR_THIS_SESSION, WTSRegisterSessionNotification,
+                WTSUnRegisterSessionNotification,
+            },
+            SystemServices::GUID_SESSION_DISPLAY_STATUS,
+        },
+        UI::WindowsAndMessaging::{
+            CreateWindowExW, DEVICE_NOTIFY_WINDOW_HANDLE, DefWindowProcW, DestroyWindow,
+            DispatchMessageW, GetMessageW, HWND_MESSAGE, MSG, PBT_APMRESUMEAUTOMATIC,
+            PBT_APMRESUMECRITICAL, PBT_APMRESUMESUSPEND, PBT_APMSUSPEND, PBT_POWERSETTINGCHANGE,
+            RegisterClassW, TranslateMessage, WM_POWERBROADCAST, WM_WTSSESSION_CHANGE, WNDCLASSW,
+            WTS_SESSION_LOCK, WTS_SESSION_UNLOCK,
+        },
+    };
+
+    static DISPLAY_AWAKE: AtomicBool = AtomicBool::new(true);
+
+    thread_local! {
+        static ACTIVITY_PROBE: RefCell<Option<Arc<ActivityProbe>>> = const { RefCell::new(None) };
+    }
+
+    pub fn any_online_display_awake() -> Result<bool, String> {
+        Ok(DISPLAY_AWAKE.load(Ordering::Acquire))
+    }
+
+    pub fn install_notifications(probe: &Arc<ActivityProbe>) -> Result<(), String> {
+        let (ready_sender, ready_receiver) = sync_channel(1);
+        let probe = Arc::clone(probe);
+        thread::Builder::new()
+            .name("ccfarm-activity-events".into())
+            .spawn(move || run_notification_window(probe, ready_sender))
+            .map_err(|error| format!("failed to start Windows activity probe: {error}"))?;
+        ready_receiver
+            .recv()
+            .map_err(|_| "Windows activity probe stopped during setup".to_owned())?
+    }
+
+    fn run_notification_window(
+        probe: Arc<ActivityProbe>,
+        ready: std::sync::mpsc::SyncSender<Result<(), String>>,
+    ) {
+        ACTIVITY_PROBE.with(|slot| *slot.borrow_mut() = Some(Arc::clone(&probe)));
+        let class_name: Vec<u16> = "ClickClackFarmActivityProbe\0".encode_utf16().collect();
+        // SAFETY: a null module name requests the current executable module.
+        let module = unsafe { GetModuleHandleW(std::ptr::null()) };
+        if module.is_null() {
+            let _ = ready.send(Err(format!(
+                "failed to resolve Windows application module: {}",
+                std::io::Error::last_os_error()
+            )));
+            ACTIVITY_PROBE.with(|slot| *slot.borrow_mut() = None);
+            return;
+        }
+        let window_class = WNDCLASSW {
+            lpfnWndProc: Some(window_proc),
+            hInstance: module,
+            lpszClassName: class_name.as_ptr(),
+            ..Default::default()
+        };
+        // SAFETY: window_class and its UTF-16 class name remain live for this
+        // thread's message-loop lifetime.
+        if unsafe { RegisterClassW(&window_class) } == 0 {
+            let _ = ready.send(Err(format!(
+                "failed to register Windows activity window: {}",
+                std::io::Error::last_os_error()
+            )));
+            ACTIVITY_PROBE.with(|slot| *slot.borrow_mut() = None);
+            return;
+        }
+        // SAFETY: class_name names the class registered above. A message-only
+        // window has no visible surface or user interaction.
+        let window = unsafe {
+            CreateWindowExW(
+                0,
+                class_name.as_ptr(),
+                class_name.as_ptr(),
+                0,
+                0,
+                0,
+                0,
+                0,
+                HWND_MESSAGE,
+                std::ptr::null_mut(),
+                module,
+                std::ptr::null(),
+            )
+        };
+        if window.is_null() {
+            let _ = ready.send(Err(format!(
+                "failed to create Windows activity window: {}",
+                std::io::Error::last_os_error()
+            )));
+            ACTIVITY_PROBE.with(|slot| *slot.borrow_mut() = None);
+            return;
+        }
+        // SAFETY: window is live and belongs to the current interactive session.
+        if unsafe { WTSRegisterSessionNotification(window, NOTIFY_FOR_THIS_SESSION) } == 0 {
+            let _ = ready.send(Err(format!(
+                "failed to register Windows session notifications: {}",
+                std::io::Error::last_os_error()
+            )));
+            // SAFETY: window was created above and is owned by this thread.
+            let _ = unsafe { DestroyWindow(window) };
+            ACTIVITY_PROBE.with(|slot| *slot.borrow_mut() = None);
+            return;
+        }
+        // SAFETY: window is a valid HWND recipient and the GUID is static.
+        let display_registration = unsafe {
+            RegisterPowerSettingNotification(
+                window.cast(),
+                &GUID_SESSION_DISPLAY_STATUS,
+                DEVICE_NOTIFY_WINDOW_HANDLE,
+            )
+        };
+        if display_registration == 0 {
+            let _ = ready.send(Err(format!(
+                "failed to register Windows display notifications: {}",
+                std::io::Error::last_os_error()
+            )));
+            // SAFETY: the registration and window are both owned here.
+            unsafe {
+                let _ = WTSUnRegisterSessionNotification(window);
+                let _ = DestroyWindow(window);
+            }
+            ACTIVITY_PROBE.with(|slot| *slot.borrow_mut() = None);
+            return;
+        }
+
+        let _ = ready.send(Ok(()));
+        let mut message = MSG::default();
+        // SAFETY: message is writable; this thread owns the notification window.
+        while unsafe { GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) } > 0 {
+            // SAFETY: message came from GetMessageW on this thread.
+            unsafe {
+                TranslateMessage(&message);
+                DispatchMessageW(&message);
+            }
+        }
+
+        // SAFETY: handles remain valid until the message loop ends.
+        unsafe {
+            let _ = UnregisterPowerSettingNotification(display_registration);
+            let _ = WTSUnRegisterSessionNotification(window);
+            let _ = DestroyWindow(window);
+        }
+        probe.set_session_active(false);
+        probe.set_system_awake(false);
+        probe.set_screens_awake(false);
+        DISPLAY_AWAKE.store(false, Ordering::Release);
+        ACTIVITY_PROBE.with(|slot| *slot.borrow_mut() = None);
+    }
+
+    unsafe extern "system" fn window_proc(
+        window: HWND,
+        message: u32,
+        parameter: WPARAM,
+        data: LPARAM,
+    ) -> LRESULT {
+        ACTIVITY_PROBE.with(|slot| {
+            let Ok(slot) = slot.try_borrow() else {
+                return;
+            };
+            let Some(probe) = slot.as_ref() else {
+                return;
+            };
+            match message {
+                WM_WTSSESSION_CHANGE => match parameter as u32 {
+                    WTS_SESSION_LOCK => probe.set_session_active(false),
+                    WTS_SESSION_UNLOCK => probe.set_session_active(true),
+                    _ => {}
+                },
+                WM_POWERBROADCAST => match parameter as u32 {
+                    PBT_APMSUSPEND => {
+                        probe.set_system_awake(false);
+                        probe.set_screens_awake(false);
+                        DISPLAY_AWAKE.store(false, Ordering::Release);
+                    }
+                    PBT_APMRESUMEAUTOMATIC | PBT_APMRESUMECRITICAL | PBT_APMRESUMESUSPEND => {
+                        probe.set_system_awake(true)
+                    }
+                    PBT_POWERSETTINGCHANGE if data != 0 => {
+                        // SAFETY: PBT_POWERSETTINGCHANGE supplies a
+                        // POWERBROADCAST_SETTING for the duration of the call.
+                        let setting = unsafe { &*(data as *const POWERBROADCAST_SETTING) };
+                        if same_guid(&setting.PowerSetting, &GUID_SESSION_DISPLAY_STATUS)
+                            && setting.DataLength as usize >= size_of::<u32>()
+                        {
+                            // SAFETY: DataLength guarantees four readable bytes;
+                            // notification payload alignment is not assumed.
+                            let state = unsafe {
+                                std::ptr::read_unaligned(setting.Data.as_ptr().cast::<u32>())
+                            };
+                            let awake = state != 0;
+                            DISPLAY_AWAKE.store(awake, Ordering::Release);
+                            probe.set_screens_awake(awake);
+                        }
+                    }
+                    _ => {}
+                },
+                _ => {}
+            }
+        });
+        // SAFETY: unhandled messages are delegated to the default window proc.
+        unsafe { DefWindowProcW(window, message, parameter, data) }
+    }
+
+    fn same_guid(left: &windows_sys::core::GUID, right: &windows_sys::core::GUID) -> bool {
+        left.data1 == right.data1
+            && left.data2 == right.data2
+            && left.data3 == right.data3
+            && left.data4 == right.data4
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 mod platform {
     use super::ActivityProbe;
     use std::sync::Arc;

@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::{
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicU64, Ordering},
         mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError, sync_channel},
     },
     thread::{self, JoinHandle},
@@ -11,7 +11,12 @@ use std::{
 
 const QUEUE_CAPACITY: usize = 4096;
 const TAP_POLL_INTERVAL: Duration = Duration::from_millis(100);
+#[cfg(target_os = "windows")]
+#[path = "windows_input.rs"]
+mod windows_input;
+#[cfg(target_os = "macos")]
 const PERMISSION_RECHECK_INTERVAL: Duration = Duration::from_secs(1);
+#[cfg(target_os = "macos")]
 const MAX_REENABLE_ATTEMPTS: u8 = 3;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
@@ -61,6 +66,18 @@ pub struct RuntimeProbe {
     health: AtomicU8,
     total_effective_inputs: AtomicU64,
     dropped_observations: AtomicU64,
+    #[cfg(any(target_os = "windows", test))]
+    windows: WindowsInputCounters,
+}
+
+#[cfg(any(target_os = "windows", test))]
+#[derive(Default)]
+struct WindowsInputCounters {
+    key_down: AtomicU64,
+    key_up: AtomicU64,
+    keyboard_accepted: AtomicU64,
+    mouse_accepted: AtomicU64,
+    read_errors: AtomicU64,
 }
 
 impl RuntimeProbe {
@@ -70,6 +87,8 @@ impl RuntimeProbe {
             health: AtomicU8::new(InputHealth::Starting as u8),
             total_effective_inputs: AtomicU64::new(0),
             dropped_observations: AtomicU64::new(0),
+            #[cfg(any(target_os = "windows", test))]
+            windows: WindowsInputCounters::default(),
         }
     }
 
@@ -129,6 +148,166 @@ enum CandidateEvent {
     Ignored,
 }
 
+#[cfg(any(target_os = "windows", test))]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WindowsCandidateEvent {
+    KeyDown { virtual_key: u8 },
+    KeyUp { virtual_key: u8 },
+    LeftMouseDown,
+    RightMouseDown,
+    MiddleMouseDown,
+    Ignored,
+}
+
+#[cfg(any(target_os = "windows", test))]
+const WINDOWS_WM_KEYDOWN: u32 = 0x0100;
+#[cfg(any(target_os = "windows", test))]
+const WINDOWS_WM_KEYUP: u32 = 0x0101;
+#[cfg(any(target_os = "windows", test))]
+const WINDOWS_WM_SYSKEYDOWN: u32 = 0x0104;
+#[cfg(any(target_os = "windows", test))]
+const WINDOWS_WM_SYSKEYUP: u32 = 0x0105;
+
+#[cfg(any(target_os = "windows", test))]
+fn windows_keyboard_candidate(message: u32, virtual_key: u32) -> WindowsCandidateEvent {
+    let Ok(virtual_key) = u8::try_from(virtual_key) else {
+        return WindowsCandidateEvent::Ignored;
+    };
+    match message {
+        WINDOWS_WM_KEYDOWN | WINDOWS_WM_SYSKEYDOWN => {
+            WindowsCandidateEvent::KeyDown { virtual_key }
+        }
+        WINDOWS_WM_KEYUP | WINDOWS_WM_SYSKEYUP => WindowsCandidateEvent::KeyUp { virtual_key },
+        _ => WindowsCandidateEvent::Ignored,
+    }
+}
+
+// Raw Input uses generic modifier VKs. Distinguish left/right while keeping
+// only a transient pressed-bit map; never decode or serialize input content.
+#[cfg(any(target_os = "windows", test))]
+fn raw_keyboard_candidate(
+    message: u32,
+    virtual_key: u16,
+    scan: u16,
+    flags: u16,
+) -> WindowsCandidateEvent {
+    if virtual_key == 0 || virtual_key >= 255 || scan == 255 {
+        return WindowsCandidateEvent::Ignored;
+    }
+    let key = match virtual_key {
+        0x10 => {
+            if scan == 0x36 {
+                0xa1
+            } else {
+                0xa0
+            }
+        }
+        0x11 => {
+            if flags & 2 != 0 {
+                0xa3
+            } else {
+                0xa2
+            }
+        }
+        0x12 => {
+            if flags & 2 != 0 {
+                0xa5
+            } else {
+                0xa4
+            }
+        }
+        value => u32::from(value),
+    };
+    windows_keyboard_candidate(message, key)
+}
+
+#[cfg(any(target_os = "windows", test))]
+struct WindowsInputPipeline {
+    sender: SyncSender<ObservedInput>,
+    runtime: Arc<RuntimeProbe>,
+    next_sequence: u64,
+    repeat_filter: WindowsRepeatFilter,
+}
+
+#[cfg(any(target_os = "windows", test))]
+impl WindowsInputPipeline {
+    fn new(sender: SyncSender<ObservedInput>, runtime: Arc<RuntimeProbe>) -> Self {
+        Self {
+            sender,
+            runtime,
+            next_sequence: 0,
+            repeat_filter: WindowsRepeatFilter::new(),
+        }
+    }
+
+    fn observe(&mut self, candidate: WindowsCandidateEvent) {
+        match candidate {
+            WindowsCandidateEvent::KeyDown { .. } => {
+                saturating_add(&self.runtime.windows.key_down, 1)
+            }
+            WindowsCandidateEvent::KeyUp { .. } => saturating_add(&self.runtime.windows.key_up, 1),
+            _ => {}
+        }
+        if !self.repeat_filter.observe(candidate) {
+            return;
+        }
+        self.next_sequence = self.next_sequence.saturating_add(1);
+        let observation = ObservedInput {
+            sequence: self.next_sequence,
+            observed_at: Instant::now(),
+        };
+        match self.sender.try_send(observation) {
+            Ok(()) => {
+                let counter = if matches!(candidate, WindowsCandidateEvent::KeyDown { .. }) {
+                    &self.runtime.windows.keyboard_accepted
+                } else {
+                    &self.runtime.windows.mouse_accepted
+                };
+                saturating_add(counter, 1);
+            }
+            Err(TrySendError::Full(_)) => self.runtime.record_queue_drop(),
+            Err(TrySendError::Disconnected(_)) => self.runtime.set_health(InputHealth::Stopped),
+        }
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+#[derive(Debug)]
+struct WindowsRepeatFilter {
+    pressed: [bool; 256],
+}
+
+#[cfg(any(target_os = "windows", test))]
+impl WindowsRepeatFilter {
+    fn new() -> Self {
+        Self {
+            pressed: [false; 256],
+        }
+    }
+
+    fn observe(&mut self, candidate: WindowsCandidateEvent) -> bool {
+        match candidate {
+            WindowsCandidateEvent::KeyDown { virtual_key } => {
+                let pressed = &mut self.pressed[usize::from(virtual_key)];
+                if *pressed {
+                    false
+                } else {
+                    *pressed = true;
+                    true
+                }
+            }
+            WindowsCandidateEvent::KeyUp { virtual_key } => {
+                self.pressed[usize::from(virtual_key)] = false;
+                false
+            }
+            WindowsCandidateEvent::LeftMouseDown
+            | WindowsCandidateEvent::RightMouseDown
+            | WindowsCandidateEvent::MiddleMouseDown => true,
+            WindowsCandidateEvent::Ignored => false,
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn is_effective_candidate(candidate: CandidateEvent) -> bool {
     match candidate {
@@ -143,6 +322,7 @@ fn is_effective_candidate(candidate: CandidateEvent) -> bool {
 
 struct RunningProbe {
     stop: Arc<AtomicBool>,
+    event_thread_id: Arc<AtomicU32>,
     threads: Vec<JoinHandle<()>>,
 }
 
@@ -168,17 +348,20 @@ impl InputController {
         }
 
         let stop = Arc::new(AtomicBool::new(false));
+        let event_thread_id = Arc::new(AtomicU32::new(0));
         let (sender, receiver) = sync_channel(QUEUE_CAPACITY);
         let aggregate_thread = spawn_aggregator(receiver, Arc::clone(&runtime), Arc::clone(&stop));
         let tap_thread = spawn_event_tap(
             sender,
             Arc::clone(&runtime),
             Arc::clone(&stop),
+            Arc::clone(&event_thread_id),
             on_fatal_unavailable,
         );
 
         *running = Some(RunningProbe {
             stop,
+            event_thread_id,
             threads: vec![aggregate_thread, tap_thread],
         });
         Ok(())
@@ -194,6 +377,7 @@ impl InputController {
             return;
         };
         running.stop.store(true, Ordering::Release);
+        wake_event_thread(&running.event_thread_id);
         for thread in running.threads {
             let _ = thread.join();
         }
@@ -245,6 +429,7 @@ fn spawn_event_tap(
     sender: SyncSender<ObservedInput>,
     runtime: Arc<RuntimeProbe>,
     stop: Arc<AtomicBool>,
+    _event_thread_id: Arc<AtomicU32>,
     on_fatal_unavailable: Arc<dyn Fn() + Send + Sync>,
 ) -> JoinHandle<()> {
     use core_foundation::runloop::{CFRunLoop, kCFRunLoopCommonModes, kCFRunLoopDefaultMode};
@@ -377,11 +562,15 @@ fn spawn_event_tap(
         .expect("failed to spawn event tap thread")
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+use windows_input::spawn_event_tap;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn spawn_event_tap(
     _sender: SyncSender<ObservedInput>,
     runtime: Arc<RuntimeProbe>,
     _stop: Arc<AtomicBool>,
+    _event_thread_id: Arc<AtomicU32>,
     on_fatal_unavailable: Arc<dyn Fn() + Send + Sync>,
 ) -> JoinHandle<()> {
     thread::spawn(move || {
@@ -390,6 +579,21 @@ fn spawn_event_tap(
         on_fatal_unavailable();
     })
 }
+
+#[cfg(target_os = "windows")]
+fn wake_event_thread(event_thread_id: &AtomicU32) {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{PostThreadMessageW, WM_QUIT};
+
+    let thread_id = event_thread_id.load(Ordering::Acquire);
+    if thread_id != 0 {
+        // SAFETY: the hook thread publishes its ID only after creating its
+        // message queue. WM_QUIT is used solely to end that owned loop.
+        let _ = unsafe { PostThreadMessageW(thread_id, WM_QUIT, 0, 0) };
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+fn wake_event_thread(_event_thread_id: &AtomicU32) {}
 
 #[cfg(target_os = "macos")]
 #[link(name = "CoreGraphics", kind = "framework")]
@@ -405,7 +609,12 @@ pub fn preflight_permission() -> bool {
     unsafe { CGPreflightListenEventAccess() }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+pub fn preflight_permission() -> bool {
+    true
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn preflight_permission() -> bool {
     false
 }
@@ -417,7 +626,12 @@ pub fn request_permission() -> bool {
     unsafe { CGRequestListenEventAccess() }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+pub fn request_permission() -> bool {
+    true
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 pub fn request_permission() -> bool {
     false
 }
@@ -431,6 +645,80 @@ mod tests {
         let counter = AtomicU64::new(u64::MAX - 1);
         saturating_add(&counter, 8);
         assert_eq!(counter.load(Ordering::Acquire), u64::MAX);
+    }
+
+    #[test]
+    fn raw_keyboard_to_aggregator_counts_ten_taps_and_three_clicks_once() {
+        let runtime = Arc::new(RuntimeProbe::new());
+        let (sender, receiver) = sync_channel(64);
+        let worker = spawn_aggregator(
+            receiver,
+            Arc::clone(&runtime),
+            Arc::new(AtomicBool::new(false)),
+        );
+        let mut pipeline = WindowsInputPipeline::new(sender, Arc::clone(&runtime));
+        for _ in 0..10 {
+            pipeline.observe(raw_keyboard_candidate(WINDOWS_WM_KEYDOWN, 65, 30, 0));
+            // Holding a key must not generate more gameplay inputs.
+            pipeline.observe(raw_keyboard_candidate(WINDOWS_WM_KEYDOWN, 65, 30, 0));
+            pipeline.observe(raw_keyboard_candidate(WINDOWS_WM_KEYUP, 65, 30, 1));
+        }
+        pipeline.observe(WindowsCandidateEvent::LeftMouseDown);
+        pipeline.observe(WindowsCandidateEvent::RightMouseDown);
+        pipeline.observe(WindowsCandidateEvent::MiddleMouseDown);
+        drop(pipeline); // channel closes; aggregator drains before joining.
+        worker.join().unwrap();
+        assert_eq!(runtime.windows.key_down.load(Ordering::Acquire), 20);
+        assert_eq!(runtime.windows.key_up.load(Ordering::Acquire), 10);
+        assert_eq!(
+            runtime.windows.keyboard_accepted.load(Ordering::Acquire),
+            10
+        );
+        assert_eq!(runtime.windows.mouse_accepted.load(Ordering::Acquire), 3);
+        assert_eq!(runtime.windows.read_errors.load(Ordering::Acquire), 0);
+        assert_eq!(runtime.total_effective_inputs(), 13);
+    }
+
+    #[test]
+    fn raw_input_distinguishes_modifiers_and_ignores_invalid_keys() {
+        let mut filter = WindowsRepeatFilter::new();
+        for (vk, left_scan, right_scan, right_flags) in [
+            (16, 0x2a, 0x36, 0),
+            (17, 0x1d, 0x1d, 2),
+            (18, 0x38, 0x38, 2),
+        ] {
+            assert!(filter.observe(raw_keyboard_candidate(WINDOWS_WM_KEYDOWN, vk, left_scan, 0)));
+            assert!(filter.observe(raw_keyboard_candidate(
+                WINDOWS_WM_KEYDOWN,
+                vk,
+                right_scan,
+                right_flags
+            )));
+            assert!(!filter.observe(raw_keyboard_candidate(
+                WINDOWS_WM_KEYDOWN,
+                vk,
+                right_scan,
+                right_flags
+            )));
+        }
+        for (vk, scan) in [(0, 0), (255, 1), (256, 1), (65, 255)] {
+            assert_eq!(
+                raw_keyboard_candidate(WINDOWS_WM_KEYDOWN, vk, scan, 0),
+                WindowsCandidateEvent::Ignored
+            );
+        }
+    }
+
+    #[test]
+    fn windows_pipeline_reports_queue_overflow_without_blocking() {
+        let runtime = Arc::new(RuntimeProbe::new());
+        let (sender, _receiver) = sync_channel(1);
+        let mut pipeline = WindowsInputPipeline::new(sender, Arc::clone(&runtime));
+        pipeline.observe(WindowsCandidateEvent::LeftMouseDown);
+        pipeline.observe(raw_keyboard_candidate(WINDOWS_WM_KEYDOWN, 65, 30, 0));
+        assert_eq!(runtime.dropped_observations.load(Ordering::Acquire), 1);
+        assert_eq!(runtime.windows.keyboard_accepted.load(Ordering::Acquire), 0);
+        assert_eq!(runtime.health(), InputHealth::Degraded);
     }
 
     #[test]
@@ -459,5 +747,46 @@ mod tests {
             transient_button_number: 3,
         }));
         assert!(!is_effective_candidate(CandidateEvent::Ignored));
+    }
+
+    #[test]
+    fn windows_filter_counts_one_keydown_until_keyup_and_three_mouse_buttons() {
+        let mut filter = WindowsRepeatFilter::new();
+        assert!(filter.observe(WindowsCandidateEvent::KeyDown { virtual_key: 65 }));
+        assert!(!filter.observe(WindowsCandidateEvent::KeyDown { virtual_key: 65 }));
+        assert!(!filter.observe(WindowsCandidateEvent::KeyUp { virtual_key: 65 }));
+        assert!(filter.observe(WindowsCandidateEvent::KeyDown { virtual_key: 65 }));
+        assert!(filter.observe(WindowsCandidateEvent::LeftMouseDown));
+        assert!(filter.observe(WindowsCandidateEvent::RightMouseDown));
+        assert!(filter.observe(WindowsCandidateEvent::MiddleMouseDown));
+        assert!(!filter.observe(WindowsCandidateEvent::Ignored));
+    }
+
+    #[test]
+    fn windows_keyboard_messages_map_to_transient_key_state_without_character_data() {
+        assert_eq!(
+            windows_keyboard_candidate(WINDOWS_WM_KEYDOWN, 65),
+            WindowsCandidateEvent::KeyDown { virtual_key: 65 }
+        );
+        assert_eq!(
+            windows_keyboard_candidate(WINDOWS_WM_SYSKEYDOWN, 18),
+            WindowsCandidateEvent::KeyDown { virtual_key: 18 }
+        );
+        assert_eq!(
+            windows_keyboard_candidate(WINDOWS_WM_KEYUP, 65),
+            WindowsCandidateEvent::KeyUp { virtual_key: 65 }
+        );
+        assert_eq!(
+            windows_keyboard_candidate(WINDOWS_WM_SYSKEYUP, 18),
+            WindowsCandidateEvent::KeyUp { virtual_key: 18 }
+        );
+        assert_eq!(
+            windows_keyboard_candidate(0x0201, 65),
+            WindowsCandidateEvent::Ignored
+        );
+        assert_eq!(
+            windows_keyboard_candidate(WINDOWS_WM_KEYDOWN, 256),
+            WindowsCandidateEvent::Ignored
+        );
     }
 }

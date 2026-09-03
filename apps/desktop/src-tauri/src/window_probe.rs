@@ -18,6 +18,12 @@ pub fn hide_main_window(app: &AppHandle) -> Result<(), String> {
 
 pub fn configure_desktop_window(app: &AppHandle) -> Result<(), String> {
     set_main_window_always_on_top(app, true)?;
+    #[cfg(target_os = "windows")]
+    // A native menu bar paints an opaque strip above the transparent farm.
+    // Hide only the bar: keep the installed menu and Ctrl+W / Ctrl+Q accelerators.
+    main_window(app)?
+        .hide_menu()
+        .map_err(|_| "failed to hide native window menu")?;
     #[cfg(target_os = "macos")]
     configure_collection_behavior(&main_window(app)?)?;
     Ok(())

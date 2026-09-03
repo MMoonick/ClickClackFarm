@@ -477,7 +477,7 @@ dependencies = [
 
 [[package]]
 name = "clickclackfarm-demo"
-version = "1.0.0"
+version = "1.0.3"
 dependencies = [
  "block2",
  "clickclackfarm-content-config",
@@ -494,6 +494,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-single-instance",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
